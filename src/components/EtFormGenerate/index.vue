@@ -17,7 +17,7 @@
       <el-row>
         <el-col v-for="(item, index) in typeList" :key="index" :span="tableSpan">
           <el-form-item v-if="status==='detail'" :label="labelList[index]">
-            {{ form[item.name] }}
+            {{ detailValue(item, form) }}
           </el-form-item>
           <el-form-item v-else-if="item.type==='input'" :label="labelList[index]" :prop="item.name">
             <el-input v-model="form[item.name]" :placeholder="$t('table.input')" />
@@ -26,7 +26,12 @@
             <el-input v-model.number="form[item.name]" :placeholder="$t('table.input')" />
           </el-form-item>
           <el-form-item v-else-if="item.type==='radio'" :label="labelList[index]" :prop="item.name">
-            <el-radio v-for="radio in item.list" :key="radio.id" v-model="form[item.name]" :label="radio.id">{{ radio.name }}</el-radio>
+            <el-radio v-for="radio in item.list" :key="radio.id" v-model="form[item.name]" :label="item.listprop ? radio[item.listprop.id] : radio.id">{{ item.listprop ? radio[item.listprop.name] : radio.name }}</el-radio>
+          </el-form-item>
+          <el-form-item v-else-if="item.type==='select'" :label="labelList[index]" :prop="item.name">
+            <el-select v-model="form[item.name]" style="width: 100%">
+              <el-option v-for="selection in item.list" :key="selection.id" :value="item.listprop ? selection[item.listprop.id] : selection.id" :label="item.listprop ? selection[item.listprop.name] : selection.name" />
+            </el-select>
           </el-form-item>
         </el-col>
       </el-row>
@@ -80,7 +85,8 @@ export default {
     return {
       Loading: false,
       form: {},
-      submitId: ''
+      submitId: '',
+      hasList: false
     }
   },
   computed: {
@@ -136,6 +142,17 @@ export default {
       } else {
         return 22
       }
+    },
+    detailValue() {
+      return function(item, form) {
+        if (item.list && item.list.length > 0 && item.listprop) {
+          return form[item.name] !== undefined && item.list.find(i => i[item.listprop.id] === form[item.name])[item.listprop.name]
+        }
+        if (item.list && item.list.length > 0 && !item.listprop) {
+          return form[item.name] !== undefined && item.list.find(i => i.id === form[item.name]).name
+        }
+        return form[item.name]
+      }
     }
   },
   watch: {
@@ -143,9 +160,27 @@ export default {
       if (val) {
         if (this.status === 'edit' || this.status === 'detail') {
           this.$refs['form'] && this.$refs['form'].clearValidate()
-          this.form = Object.assign({}, this.formData)
-          this.submitId = this.formData.id
-          delete this.form.id
+          this.handleFormatForm()
+        }
+        if (this.hasList) {
+          return false
+        } else {
+          const promisetList = []
+          const indexList = []
+          this.typeList.forEach((item, index) => {
+            if (item.listapi) {
+              promisetList.push(item.listapi())
+              indexList.push(index)
+            }
+          })
+          this.Loading = true
+          Promise.all(promisetList).then(response => {
+            response.forEach((item, index) => {
+              this.$set(this.typeList[indexList[index]], 'list', response[index].data)
+            })
+            this.Loading = false
+            this.hasList = true
+          }).catch(() => { this.Loading = false })
         }
       }
     }
@@ -198,6 +233,22 @@ export default {
           return false
         }
       })
+    },
+    handleFormatForm() {
+      if (this.status === 'detail' || this.status === 'edit') {
+        const formObj = {}
+        this.submitId = this.formData.id
+        this.typeList.forEach(item => {
+          if (Object.prototype.toString.call(this.formData[item.name]) === '[object Object]' && !item.listprop) {
+            formObj[item.name] = this.formData[item.name].id
+          } else if (Object.prototype.toString.call(this.formData[item.name]) === '[object Object]' && item.listprop) {
+            formObj[item.name] = this.formData[item.name][item.listprop.id]
+          } else {
+            formObj[item.name] = this.formData[item.name]
+          }
+        })
+        this.form = formObj
+      }
     }
   }
 }
